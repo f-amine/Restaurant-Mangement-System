@@ -7,6 +7,7 @@ import com.app.Restaurant.POJO.User;
 import com.app.Restaurant.constents.RestaurantConstant;
 import com.app.Restaurant.dao.UserDao;
 import com.app.Restaurant.service.UserService;
+import com.app.Restaurant.utils.EmailUtils;
 import com.app.Restaurant.utils.RestaurantUtils;
 import com.app.Restaurant.wrapper.UserWrapper;
 import lombok.extern.slf4j.Slf4j;
@@ -20,10 +21,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -36,6 +34,12 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     CustumerUserDetailService custumerUserDetailService;
+
+    @Autowired
+    JwtFilter jwtFilter;
+
+    @Autowired
+    EmailUtils emailUtils;
 
     @Autowired
     JwtUtil jwtUtil;
@@ -105,10 +109,44 @@ public class UserServiceImpl implements UserService {
     @Override
     public ResponseEntity<List<UserWrapper>> getAllUser() {
         try{
-
+            if (jwtFilter.isAdmin()){
+                return new ResponseEntity<>(userDao.getAllUser(), HttpStatus.OK);
+            }else{
+                return new ResponseEntity<>(new ArrayList<>(),HttpStatus.UNAUTHORIZED);
+            }
         }catch (Exception ex){
             ex.printStackTrace();
         }
         return new ResponseEntity<>(new ArrayList<>(), HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @Override
+    public ResponseEntity<String> update(Map<String, String> requestMap) {
+        try{
+            if(jwtFilter.isAdmin()){
+                Optional<User> optional =userDao.findById(Integer.parseInt(requestMap.get("id")));
+                if (!optional.isEmpty()){
+                    userDao.updateStatus(requestMap.get("status"),Integer.parseInt(requestMap.get("id")));
+                    sendMailToAllAdmin(requestMap.get("status"),optional.get().getEmail(),userDao.getAllAdmin());
+                    return RestaurantUtils.getResponseEntity("user Status Updated Succesfully",HttpStatus.OK);
+                }else{
+                    return RestaurantUtils.getResponseEntity("User id doesn't exist",HttpStatus.OK);
+                }
+            }else{
+                return RestaurantUtils.getResponseEntity(RestaurantConstant.UNAUTHORIZED_ACCESS,HttpStatus.UNAUTHORIZED);
+            }
+        }catch (Exception ex){
+            ex.printStackTrace();
+        }
+        return RestaurantUtils.getResponseEntity(RestaurantConstant.SOMETHING_WENT_WRONG,HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    private void sendMailToAllAdmin(String status, String user, List<String> allAdmin) {
+        allAdmin.remove(jwtFilter.getCurrentUser());
+        if(status!= null && status.equalsIgnoreCase("true")){
+            emailUtils.sendSimpleMessage(jwtFilter.getCurrentUser(),"Account Approved ","User :- " +user+" \n is approved by \n ADMIN:-" + jwtFilter.getCurrentUser(),allAdmin);
+        }else {
+            emailUtils.sendSimpleMessage(jwtFilter.getCurrentUser(),"Account Disabled ","User :- " +user+" \n is disabled by \n ADMIN:-" + jwtFilter.getCurrentUser(),allAdmin);
+        }
     }
 }
